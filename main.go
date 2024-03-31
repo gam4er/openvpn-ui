@@ -123,7 +123,6 @@ func (u *MyUser) GetPrivateKey() crypto.PrivateKey {
 
 func main() {
 
-	kingpin.Version(version)
 	kingpin.Parse()
 
 	configFile := filepath.Join(*configDir, "app.conf")
