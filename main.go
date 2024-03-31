@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"path/filepath"
 	"strconv"
@@ -26,6 +25,9 @@ import (
 )
 
 var (
+	//configDir := flag.String("config", "conf", "Path to config dir")
+	configDir = kingpin.Flag("config", "Interface for admin web UI").Default("conf").Envar("CONFIG_DIR").String()
+
 	listenHost        = kingpin.Flag("listen.host", "Interface for admin web UI").Default("0.0.0.0").Envar("WEB_LISTEN_HOST").String()
 	listenPort        = kingpin.Flag("listen.port", "Port for admin web UI").Default("8080").Envar("WEB_LISTEN_PORT").Int()
 	letsencrypt       = kingpin.Flag("letsencrypt.enable", "enable Let's encrypt").Default("false").Envar("LETSENCRYPT").Bool()
@@ -120,8 +122,9 @@ func (u *MyUser) GetPrivateKey() crypto.PrivateKey {
 }
 
 func main() {
-	configDir := flag.String("config", "conf", "Path to config dir")
-	flag.Parse()
+
+	kingpin.Version(version)
+	kingpin.Parse()
 
 	configFile := filepath.Join(*configDir, "app.conf")
 	fmt.Println("Config file:", configFile)
