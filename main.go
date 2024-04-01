@@ -22,6 +22,8 @@ import (
 	"github.com/go-acme/lego/v4/lego"
 	"github.com/go-acme/lego/v4/registration"
 	"gopkg.in/alecthomas/kingpin.v2"
+
+	"crypto/ecdsa"
 )
 
 var (
@@ -42,9 +44,55 @@ func checkAndUpdateCerts(email, domain string) {
 	certFile := *letsencryptkeys + "/cert.pem"
 
 	// Проверка наличия сертификата и его срока действия.
+
 	if certExistsAndValid(certFile) {
 		log.Println("Cert is valid an shouldn't be updated")
 		return
+	}
+
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	myUser := MyUser{
+		Email: *letsencryptemail,
+		key:   privateKey,
+	}
+
+	config := lego.NewConfig(&myUser)
+	// Здесь указывайте ваш email
+
+	config.CADirURL = lego.LEDirectoryProduction
+	config.Certificate.KeyType = certcrypto.RSA2048
+
+	// Создание клиента
+	legoClient, err := lego.NewClient(config)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Регистрация пользователя
+	reg, err := legoClient.Registration.Register(registration.RegisterOptions{TermsOfServiceAgreed: true})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	myUser.Registration = reg
+	// Настройка HTTP-челленджа
+	err = legoClient.Challenge.SetHTTP01Provider(http01.NewProviderServer("", "80"))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Получение сертификата
+	request := certificate.ObtainRequest{
+		Domains: []string{*letsencryptdomain},
+		Bundle:  true,
+	}
+	certificates, err := legoClient.Certificate.Obtain(request)
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	// Создание клиента LEGO.
