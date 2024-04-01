@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"path/filepath"
 	"strconv"
@@ -23,9 +22,14 @@ import (
 	"github.com/go-acme/lego/v4/lego"
 	"github.com/go-acme/lego/v4/registration"
 	"gopkg.in/alecthomas/kingpin.v2"
+
+	"crypto/ecdsa"
 )
 
 var (
+	//configDir := flag.String("config", "conf", "Path to config dir")
+	configDir = kingpin.Flag("config", "Interface for admin web UI").Default("conf").Envar("CONFIG_DIR").String()
+
 	listenHost        = kingpin.Flag("listen.host", "Interface for admin web UI").Default("0.0.0.0").Envar("WEB_LISTEN_HOST").String()
 	listenPort        = kingpin.Flag("listen.port", "Port for admin web UI").Default("8080").Envar("WEB_LISTEN_PORT").Int()
 	letsencrypt       = kingpin.Flag("letsencrypt.enable", "enable Let's encrypt").Default("false").Envar("LETSENCRYPT").Bool()
@@ -40,9 +44,55 @@ func checkAndUpdateCerts(email, domain string) {
 	certFile := *letsencryptkeys + "/cert.pem"
 
 	// Проверка наличия сертификата и его срока действия.
+
 	if certExistsAndValid(certFile) {
 		log.Println("Cert is valid an shouldn't be updated")
 		return
+	}
+
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	myUser := MyUser{
+		Email: *letsencryptemail,
+		key:   privateKey,
+	}
+
+	config := lego.NewConfig(&myUser)
+	// Здесь указывайте ваш email
+
+	config.CADirURL = lego.LEDirectoryProduction
+	config.Certificate.KeyType = certcrypto.RSA2048
+
+	// Создание клиента
+	legoClient, err := lego.NewClient(config)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Регистрация пользователя
+	reg, err := legoClient.Registration.Register(registration.RegisterOptions{TermsOfServiceAgreed: true})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	myUser.Registration = reg
+	// Настройка HTTP-челленджа
+	err = legoClient.Challenge.SetHTTP01Provider(http01.NewProviderServer("", "80"))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Получение сертификата
+	request := certificate.ObtainRequest{
+		Domains: []string{*letsencryptdomain},
+		Bundle:  true,
+	}
+	certificates, err := legoClient.Certificate.Obtain(request)
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	// Создание клиента LEGO.
@@ -120,8 +170,8 @@ func (u *MyUser) GetPrivateKey() crypto.PrivateKey {
 }
 
 func main() {
-	configDir := flag.String("config", "conf", "Path to config dir")
-	flag.Parse()
+
+	kingpin.Parse()
 
 	configFile := filepath.Join(*configDir, "app.conf")
 	fmt.Println("Config file:", configFile)
@@ -129,20 +179,6 @@ func main() {
 	if err := web.LoadAppConfig("ini", configFile); err != nil {
 		panic(err)
 	}
-
-	models.InitDB()
-	models.CreateDefaultUsers()
-	defaultSettings, err := models.CreateDefaultSettings()
-	if err != nil {
-		panic(err)
-	}
-
-	models.CreateDefaultOVConfig(*configDir, defaultSettings.OVConfigPath, defaultSettings.MIAddress, defaultSettings.MINetwork)
-	models.CreateDefaultOVClientConfig(*configDir, defaultSettings.OVConfigPath, defaultSettings.MIAddress, defaultSettings.MINetwork)
-	models.CreateDefaultEasyRSAConfig(*configDir, defaultSettings.EasyRSAPath, defaultSettings.MIAddress, defaultSettings.MINetwork)
-	state.GlobalCfg = *defaultSettings
-
-	routers.Init(*configDir)
 
 	if *letsencrypt == true {
 
@@ -166,6 +202,21 @@ func main() {
 		web.BConfig.Listen.HTTPAddr = *listenHost
 		web.BConfig.Listen.HTTPPort = *listenPort
 	}
+
+	models.InitDB()
+	models.CreateDefaultUsers()
+	defaultSettings, err := models.CreateDefaultSettings()
+	if err != nil {
+		panic(err)
+	}
+
+	models.CreateDefaultOVConfig(*configDir, defaultSettings.OVConfigPath, defaultSettings.MIAddress, defaultSettings.MINetwork)
+	models.CreateDefaultOVClientConfig(*configDir, defaultSettings.OVConfigPath, defaultSettings.MIAddress, defaultSettings.MINetwork)
+	models.CreateDefaultEasyRSAConfig(*configDir, defaultSettings.EasyRSAPath, defaultSettings.MIAddress, defaultSettings.MINetwork)
+	state.GlobalCfg = *defaultSettings
+
+	routers.Init(*configDir)
+
 	lib.AddFuncMaps()
 	web.Run()
 }
